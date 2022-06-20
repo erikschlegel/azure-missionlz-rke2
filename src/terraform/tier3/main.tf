@@ -10,21 +10,42 @@ terraform {
     }
   }
   */
-  backend "local" {}
+  backend "azurerm" {
+    key = "terraform.tfstate.tier3"
+  }
 
   required_version = ">= 1.0.11"
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "= 2.90.0"
+      version = "~>2.67.0"
     }
   }
+}
+
+data "terraform_remote_state" "hub" {
+  backend = "azurerm"
+  config = {
+    key                  = "terraform.tfstate.hub"
+    container_name       = "statestore"
+    storage_account_name = "amlztfstate"
+  }
+}
+
+locals {
+  hub_subid           = data.terraform_remote_state.hub.outputs.hub_subid
+  hub_rgname          = data.terraform_remote_state.hub.outputs.hub_rgname
+  hub_vnetname        = data.terraform_remote_state.hub.outputs.hub_vnetname
+  firewall_private_ip = data.terraform_remote_state.hub.outputs.firewall_private_ip
+  tier1_subid         = data.terraform_remote_state.hub.outputs.tier1_subid
+  laws_name           = data.terraform_remote_state.hub.outputs.laws_name
+  laws_rgname         = data.terraform_remote_state.hub.outputs.laws_rgname
 }
 
 provider "azurerm" {
   environment     = var.environment
   metadata_host   = var.metadata_host
-  subscription_id = var.hub_subid
+  subscription_id = local.hub_subid
 
   features {
     log_analytics_workspace {
@@ -40,7 +61,7 @@ provider "azurerm" {
   alias           = "hub"
   environment     = var.environment
   metadata_host   = var.metadata_host
-  subscription_id = var.hub_subid
+  subscription_id = local.hub_subid
 
   features {
     log_analytics_workspace {
@@ -56,7 +77,7 @@ provider "azurerm" {
   alias           = "tier1"
   environment     = var.environment
   metadata_host   = var.metadata_host
-  subscription_id = var.tier1_subid
+  subscription_id = local.tier1_subid
 
   features {
     log_analytics_workspace {
@@ -103,8 +124,8 @@ resource "azurerm_resource_group" "tier3" {
 data "azurerm_log_analytics_workspace" "laws" {
   provider = azurerm.tier1
 
-  name                = var.laws_name
-  resource_group_name = var.laws_rgname
+  name                = local.laws_name
+  resource_group_name = local.laws_rgname
 }
 
 // Central Logging
@@ -113,7 +134,7 @@ locals {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "tier3-central" {
-  count              = var.tier3_subid != var.hub_subid ? 1 : 0
+  count              = var.tier3_subid != local.hub_subid ? 1 : 0
   provider           = azurerm.tier3
   name               = "tier3-central-diagnostics"
   target_resource_id = "/subscriptions/${var.tier3_subid}"
@@ -139,8 +160,8 @@ resource "azurerm_monitor_diagnostic_setting" "tier3-central" {
 ################################
 
 data "azurerm_virtual_network" "hub" {
-  name                = var.hub_vnetname
-  resource_group_name = var.hub_rgname
+  name                = local.hub_vnetname
+  resource_group_name = local.hub_rgname
 }
 
 module "spoke-network-t3" {
@@ -150,7 +171,7 @@ module "spoke-network-t3" {
 
   location = azurerm_resource_group.tier3.location
 
-  firewall_private_ip = var.firewall_private_ip
+  firewall_private_ip = local.firewall_private_ip
 
   laws_location     = var.location
   laws_workspace_id = data.azurerm_log_analytics_workspace.laws.workspace_id
@@ -167,7 +188,7 @@ resource "azurerm_virtual_network_peering" "t3-to-hub" {
   provider   = azurerm.tier3
   depends_on = [azurerm_resource_group.tier3, module.spoke-network-t3]
 
-  name                         = "${var.tier3_vnetname}-to-${var.hub_vnetname}"
+  name                         = "${var.tier3_vnetname}-to-${local.hub_vnetname}"
   resource_group_name          = var.tier3_rgname
   virtual_network_name         = var.tier3_vnetname
   remote_virtual_network_id    = data.azurerm_virtual_network.hub.id
@@ -179,10 +200,22 @@ resource "azurerm_virtual_network_peering" "hub-to-t3" {
   provider   = azurerm.hub
   depends_on = [module.spoke-network-t3]
 
-  name                         = "${var.hub_vnetname}-to-${var.tier3_vnetname}"
-  resource_group_name          = var.hub_rgname
-  virtual_network_name         = var.hub_vnetname
+  name                         = "${local.hub_vnetname}-to-${var.tier3_vnetname}"
+  resource_group_name          = local.hub_rgname
+  virtual_network_name         = local.hub_vnetname
   remote_virtual_network_id    = module.spoke-network-t3.virtual_network_id
   allow_virtual_network_access = true
   allow_forwarded_traffic      = true
+}
+
+module "rke2" {
+  source                 = "github.com/rancherfederal/rke2-azure-tf"
+  cluster_name           = "rke2-cluster"
+  subnet_id              = module.spoke-network-t3.virtual_network_subnet_ids[0]
+  server_public_ip       = var.server_public_ip
+  server_open_ssh_public = var.server_open_ssh_public
+  vm_size                = var.vm_size
+  server_instance_count  = var.server_instance_count
+  agent_instance_count   = var.agent_instance_count
+  cloud                  = var.environment == "public" ? "AzurePublicCloud" : "AzureUSGovernmentCloud"
 }

@@ -10,7 +10,9 @@ terraform {
     }
   }
   */
-  backend "local" {}
+  backend "azurerm" {
+    key = "terraform.tfstate.hub"
+  }
 
   required_version = ">= 1.0.11"
   required_providers {

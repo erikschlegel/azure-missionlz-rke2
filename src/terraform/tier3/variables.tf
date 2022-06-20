@@ -31,49 +31,6 @@ variable "tags" {
 }
 
 #################################
-# Hub Configuration
-#################################
-
-variable "hub_subid" {
-  description = "Subscription ID for the Hub deployment"
-  type        = string
-}
-
-variable "hub_rgname" {
-  description = "Resource Group for the Hub deployment"
-  type        = string
-}
-
-variable "hub_vnetname" {
-  description = "Virtual Network Name for the Hub deployment"
-  type        = string
-}
-
-variable "firewall_private_ip" {
-  description = "Firewall IP to bind network to"
-  type        = string
-}
-
-#################################
-# Tier 1 Configuration
-#################################
-
-variable "tier1_subid" {
-  description = "Subscription ID for the Tier 1 deployment"
-  type        = string
-}
-
-variable "laws_name" {
-  description = "Log Analytics Workspace Name for the deployment"
-  type        = string
-}
-
-variable "laws_rgname" {
-  description = "The resource group that Log Analytics Workspace was deployed to"
-  type        = string
-}
-
-#################################
 # Tier 3 Configuration
 #################################
 variable "tier3_subid" {
@@ -162,4 +119,34 @@ variable "tier3_subnets" {
       routetable_name = "tier3RouteTable"
     }
   }
+}
+
+#################################
+# RKE Cluster Configuration
+#################################
+variable "server_public_ip" {
+  description = "Assign a public IP to the control plane load balancer"
+  type        = bool
+  default     = true
+}
+
+variable "server_open_ssh_public" {
+  description = "Allow SSH to the server nodes through the control plane load balancer"
+  type        = bool
+  default     = false
+}
+
+variable "vm_size" {
+  type    = string
+  default = "Standard_D8_v3"
+}
+
+variable "server_instance_count" {
+  type    = number
+  default = 1
+}
+
+variable "agent_instance_count" {
+  type    = number
+  default = 2
 }
